@@ -80,7 +80,7 @@ float* rgb_to_cielab(unsigned char* rgb, int w, int h, int c){
 
 void paintPixel(unsigned char* rgb_img, int w, int h, int c, int x, int y, int r, int g, int b){
 	// Make pixel bigger by painting not a single pixel, but an entire 4x4 block representing it
-	int blockSize = 20;
+	int blockSize = 5;
 	for(int i = -blockSize; i <= blockSize; ++i){
 		for(int j = -blockSize; j <= blockSize; ++j){
 			*(rgb_img+(x+i)*h*c + (y+j)*c) = r;
@@ -92,7 +92,8 @@ void paintPixel(unsigned char* rgb_img, int w, int h, int c, int x, int y, int r
 
 float gradient(float* img_cielab, int w, int h, int c, int x, int y, float* grad_x, float* grad_y){
 	//float grad_x, grad_y;
-	*grad_x = *grad_y = 0.0;
+	*grad_x = 0.0;
+	*grad_y = 0.0;
 	for(int i = 0; i < 3; ++i){
 		float term_x = *(img_cielab+(x+1)*h*c + y*c+i) - *(img_cielab+(x-1)*h*c + y*c+i);
 		float term_y = *(img_cielab+x*h*c + (y+1)*c+i) - *(img_cielab+x*h*c + (y-1)*c+i);
@@ -102,15 +103,19 @@ float gradient(float* img_cielab, int w, int h, int c, int x, int y, float* grad
 	return *grad_x + *grad_y; 
 }
 
-float Distance_D(unsigned char* rgb_img, int w, int h, int c, int blockSize, struct cluster* centers, int sizeC){
+//float Distance_D(unsigned char* rgb_img, int w, int h, int c, int blockSize, struct cluster* centers, int sizeC){
+float Distance_D(float* img_cielab, int w, int h, int c, int k, int i, int S, int m)
 	float dlab, dxy, Ds;
-	for(int k = 0; k < sizeC; ++k){
+	for(int i = 0; i < 3; ++i){
+		float l_diff = *(img_cielab+k*h*c + )
+	}
+	/*for(int k = 0; k < sizeC; ++k){
 		for(int i = -blockSize; i <= blockSize; ++i){
 			for(int j = -blockSize; j <= blockSize; ++j){
-				
+				dlab = 
 			}
 		}
-	}
+	}*/
 	return 0.0;
 }
 
@@ -134,31 +139,60 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, int m, struct cluster
 			++k;
 		}
 	}
-	// TODO: Perform gradient descent on cluster centers.
-	/*for(int i = 0; i < w; ++i){
-		for(int j = 0; j < h*c; j+=c){
-			
-		}
-	}*/
 	printf("Superpixel size: %d\n", sizeOfS);
 	printf("S = %d\n", S);
 	printf("Requested K = %d, real k = %d\n", K, k);
-	for(int i = 0; i < k; ++i){
+	/*for(int i = 0; i < k; ++i){
 		printf("center (%d,%d) => (%f,%f,%f)\n", 
 				(cluster_centers+i)->x,
 				(cluster_centers+i)->y,
 				(cluster_centers+i)->l,
 				(cluster_centers+i)->a,
 				(cluster_centers+i)->b);
-	}
+	}*/
+	// Gradient descent on cluster centers
 	float grad_x, grad_y;
+	float grad = INFINITY;
+	float umbral = 0.01;
+	//int iter = 0;
 	for(int i = 0; i < k; ++i){
-		float grad = gradient(cielab_img, w, h, c, (cluster_centers+i)->x, (cluster_centers+i)->y, &grad_x, &grad_y);
-		(cluster_centers+i)->x -= round(0.1*grad_x);
-		(cluster_centers+i)->y -= round(0.1*grad_y);
+		grad = gradient(cielab_img, w, h, c, (cluster_centers+i)->x, (cluster_centers+i)->y, &grad_x, &grad_y);
+		//printf("Start--center %d, grad = %f\n", i+1, grad);
+		do{
+			//++iter;
+			//grad = gradient(cielab_img, w, h, c, (cluster_centers+i)->x, (cluster_centers+i)->y, &grad_x, &grad_y);
+			float alpha = 0.01;
+			(cluster_centers+i)->x -= alpha*grad_x;
+			(cluster_centers+i)->y -= alpha*grad_y;
+			grad = gradient(cielab_img, w, h, c, (cluster_centers+i)->x, (cluster_centers+i)->y, &grad_x, &grad_y);
+			//printf("grad_x = %f, grad_y = %f\n", grad_x, grad_y);
+			//printf("grad = %f\n", grad);
+			//printf("iters = %d\n", iter);
+		}while(grad > umbral);
+		//printf("iters = %d, grad = %f\n", iter, grad);
+		//iter = 0;
+		//grad = gradient(cielab_img, w, h, c, (cluster_centers+i)->x, (cluster_centers+i)->y, &grad_x, &grad_y);
+		//printf("End--center %d, grad = %f\n", i+1, grad);
 	}
 
 	// Compute distances in a 2S x 2S grid around cluster centers
+	float error = INFINITY;
+	umbral = 1e-4;
+	do{
+		for(int i = 0; i < k; ++i){
+			// Assign the best matching pixels from a 2Sx2S square neighborhood around
+			// the cluster center according to the distance measure
+			for(){
+				for(){
+
+				}
+			}
+		}
+		// Compute new cluster centers and residual error(L1 distance between previous
+		// centers and recomputed centers)
+
+	}while(error <= umbral);
+	// TODO: Enforce connectivity
 
 	*sizeC = k;
 	free(labels);
@@ -203,6 +237,7 @@ int main(int argc, char** argv){
 	printf("rgb values at pixel (0,0) => (%d,%d,%d)\n", image_data[0], image_data[1], image_data[2]);
 	printf("CIELab values at pixel (0,0) => (%f,%f,%f)\n", cielab[0], cielab[1], cielab[2]);
 
+	// Allocate inside SLIC
 	struct cluster* centers = malloc(1444 * sizeof(struct cluster));
 	int sizeC;
 
@@ -245,6 +280,7 @@ int main(int argc, char** argv){
 	stbi_image_free(image_data);
 	free(cielab);
 	cielab = NULL;
+	image_data = NULL;
 
 	exit(EXIT_SUCCESS);
 }
