@@ -8,17 +8,8 @@
 #include "stb_image.h"
 #include "stb_image_write.h"
 
-/*
- * Reference for colorspace conversions
- * http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_Lab.html
- *
- */
 
-// Reference white point for D65 illuminant
-#define Xn 0.95047
-#define Yn 1.00000
-#define Zn 1.08883
-
+#include"color_space_conversion.h"
 
 struct cluster{
 	float l;
@@ -28,130 +19,7 @@ struct cluster{
 	int y;
 };
 
-float gamma_correction(float val){
-	if(val > 0.04045)
-		return powf((val+0.055) / 1.055, 2.4); 
-	else
-		return val / 12.92;
-}
-
-float f(float t){
-	if(t > 0.008856)
-		return powf(t, 1.0/3.0);
-	else
-		return (903.3 * t + 16.0)/116.0;
-		//return 7.787 * t + (16.0/116.0);
-}
-
-/*
- * Returned cielab is interleaved, L a b. In that order
- *
- */
-
-float* rgb_to_cielab(unsigned char* rgb, int w, int h, int c){
-	float* cielab_color = malloc(w*h*3*sizeof(float));
-	if(cielab_color == NULL) return NULL;
-	for(int i = 0; i < h; ++i){
-		for(int j = 0; j < w*c; j+=c){
-			unsigned char r_o = *(rgb+i*w*c + j);
-			unsigned char g_o = *(rgb+i*w*c + j+1);
-			unsigned char b_o = *(rgb+i*w*c + j+2);
-
-			float* L = (cielab_color+i*w*c + j);
-			float* a = (cielab_color+i*w*c + j+1);
-			float* b = (cielab_color+i*w*c + j+2);
-
-			// Normalize RGB values
-			float r_n = r_o / 255.0;	// R'
-			float g_n = g_o / 255.0;	// G'
-			float b_n = b_o / 255.0;	// B'
-
-			// Apply gamma correction
-			r_n = gamma_correction(r_n);
-			g_n = gamma_correction(g_n);
-			b_n = gamma_correction(b_n);
-
-			// Convert to XYZ color space
-			float X = r_n * 0.4124564 + g_n * 0.3575761 + b_n * 0.1804375;
-			float Y = r_n * 0.2126729 + g_n * 0.7151522 + b_n * 0.0721750;
-			float Z = r_n * 0.0193339 + g_n * 0.1191920 + b_n * 0.9503041;
-
-			*L = 116 * f(Y/Yn) - 16;
-			*a = 500 * (f(X/Xn) - f(Y/Yn));
-			*b = 200 * (f(Y/Yn) - f(Z/Zn));
-
-		}
-	}
-
-	return cielab_color;
-}
-
-float srgb_companding(float val){
-	if(val <= 0.0031308)
-		return 12.92*val;
-	else
-		return 1.055*powf(val, 1.0/2.4) - 0.055;
-}
-
-
-unsigned char* cielab_to_rgb(float* cielab_img, int w, int h, int c){
-	unsigned char* rgb_img = malloc(w*h*3*sizeof(unsigned char));
-	if(rgb_img == NULL) return NULL;
-	for(int i = 0; i < h; ++i){
-		for(int j = 0; j < w*c; j+=c){
-			float l_o = *(cielab_img+i*w*c + j);
-			float a_o = *(cielab_img+i*w*c + j+1);
-			float b_o = *(cielab_img+i*w*c + j+2);
-
-			unsigned char* r = (rgb_img+i*w*c + j);
-			unsigned char* g = (rgb_img+i*w*c + j+1);
-			unsigned char* b = (rgb_img+i*w*c + j+2);
-
-			// Convert to XYZ color space
-			float fy = (l_o + 16)/116.0;
-			float fz = fy - (b_o/200.0);
-			float fx = (a_o/500.0) + fy;
-
-			float xr, yr, zr;
-			if((fx*fx*fx) > 0.008856){
-				xr = fx*fx*fx;
-			}
-			else{
-				xr = (116.0*fx - 16)/903.3;
-			}
-
-			if(l_o > (903.3*0.008856)){
-				yr = ((l_o + 16)/116.0);
-				yr = yr * yr * yr;
-			}
-			else{
-				yr = l_o/903.3;
-			}
-
-			if((fz*fz*fz) > 0.008856){
-				zr = fz*fz*fz;
-			}
-			else{
-				zr = (116.0*fz - 16)/903.3;
-			}
-			
-			float X = xr*Xn;
-			float Y = yr*Yn;
-			float Z = zr*Zn;
-
-			// Convert to RGB
-			*r = ceil(255 * srgb_companding(X * 3.2404542 + Y * -1.5371385 + Z * -0.4985314));
-			*g = ceil(255 * srgb_companding(X * -0.9692660 + Y * 1.8760108 + Z * 0.0415560));
-			*b = ceil(255 * srgb_companding(X * 0.0556434 + Y * -0.2040259 + Z * 1.0572252));
-
-
-		}
-	}
-
-	return rgb_img;
-}
-
-
+#ifdef DEBUG
 void paintPixel(unsigned char* rgb_img, int w, int h, int c, int x, int y, int r, int g, int b){
 	// Make pixel bigger by painting not a single pixel, but an entire 4x4 block representing it
 	int blockSize = 5;
@@ -163,6 +31,7 @@ void paintPixel(unsigned char* rgb_img, int w, int h, int c, int x, int y, int r
 		}
 	}
 }
+#endif
 
 float gradient(float* img_cielab, int w, int h, int c, int x, int y){
 	float grad_norm = 0.0;
@@ -188,17 +57,22 @@ float Distance_D(struct cluster* center_k, float* img_cielab, int xi, int yi, in
 }
 
 float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct cluster** cluster_centers, int* sizeC){
-	int S = round(sqrt((w*h)/K));
-	int sizeOfS = round((w*h)/K);
+	int S = round(sqrt(w*h/K));
+	int sizeOfS = round(w*h/K);
 	int neighborhood = 1;
 	*cluster_centers = malloc(K * sizeof(struct cluster));
 	int* labels = malloc(w*h*sizeof(int));
 	float* distances = malloc(w*h*sizeof(float));
 	if(*cluster_centers == NULL || labels == NULL || distances == NULL){
+		free(*cluster_centers);
+		free(labels);
+		free(distances);
+		*cluster_centers = NULL;
+		labels = NULL;
+		distances = NULL;
 		return NULL;
 	}
 	for(int i = 0; i < w*h; ++i){labels[i] = -1;} 
-	//memset(labels, -1, w*h);
 	for(int i = 0; i < w*h; ++i){distances[i] = INFINITY;}
 	int k = 0; // Number of real cluster centers
 	for(int i = S; i < h; i+=S){
@@ -216,7 +90,7 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 	printf("Requested K = %d, real k = %d\n", K, k);
 	*cluster_centers = reallocarray(*cluster_centers, k, sizeof(struct cluster));
 	// Gradient descent on cluster centers
-	float grad = INFINITY;
+	float grad;
 	float new_grad;
 	for(int i = 0; i < k; ++i){
 		grad = gradient(cielab_img, w, h, c, (*cluster_centers+i)->x, (*cluster_centers+i)->y);
@@ -245,6 +119,9 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 	float umbral = 1e-4;
 	struct cluster* previous_centers = malloc(k * sizeof(struct cluster));
 	previous_centers = memcpy(previous_centers, *cluster_centers, k*sizeof(struct cluster));
+	int pixel_count[k];
+	int new_x[k];
+	int new_y[k];
 	do{
 		for(int i = 0; i < k; ++i){
 			// Assign the best matching pixels from a 2Sx2S square neighborhood around
@@ -265,12 +142,8 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 			}
 		}
 		// Compute new cluster centers and residual error(L1 distance between previous
-		// cnters and recomputed centers)
-
-		int pixel_count[k];
+		// centers and recomputed centers)
 		memset(pixel_count, 0, k*sizeof(int));
-		int new_x[k];
-		int new_y[k];
 		memset(new_x, 0, k*sizeof(int));
 		memset(new_y, 0, k*sizeof(int));
 
@@ -283,7 +156,6 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 				pixel_count[label_idx] += 1;
 			}
 		}
-		//error = 0;
 		for(int i = 0; i < k; ++i){
 			if(pixel_count[i] == 0) continue;
 			new_x[i] /= pixel_count[i];
@@ -305,7 +177,6 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 	
 	// Generate final image
 	float* out_img = malloc(w*h*c*sizeof(float));
-	//out_img = memcpy(out_img, cielab_img, w*h*c*sizeof(float));
 	if(out_img != NULL){
 		for(int i = 0; i < h; ++i){
 			for(int j = 0; j < w; ++j){
@@ -363,18 +234,7 @@ int main(int argc, char** argv){
 
 	float* cielab = rgb_to_cielab(image_data, x_dim, y_dim, n_channels);
 	printf("Image dimensions: %d x %d %d\n", x_dim, y_dim, n_channels);
-	//printf("rgb values at pixel (0,0) => (%d,%d,%d)\n", image_data[0], image_data[1], image_data[2]);
-	//printf("CIELab values at pixel (0,0) => (%f,%f,%f)\n", cielab[0], cielab[1], cielab[2]);
 
-	/*printf("testing cielab to rgb function...\n");
-	unsigned char* img_test = cielab_to_rgb(cielab, x_dim, y_dim, n_channels);
-	int res_test = stbi_write_jpg("gato_recuperado.jpeg", x_dim, y_dim, n_channels, img_test, 100);
-	free(img_test);
-	img_test = NULL;
-	*/
-
-	// Allocate inside SLIC
-	//struct cluster* centers = malloc(1444 * sizeof(struct cluster));
 	int sizeC;
 	struct cluster* centers;
 
@@ -383,19 +243,18 @@ int main(int argc, char** argv){
 		fprintf(stderr, "Error allocating memory\n");
 		exit(EXIT_FAILURE);
 	}
-	//printf("Segmented CIELab values at pixel (0,0) => (%f,%f,%f)\n", segmented[0], segmented[1], segmented[2]);
 
 	unsigned char* segmented_rgb = cielab_to_rgb(segmented, x_dim, y_dim, n_channels);
-	//printf("Segmented RGB values at pixel (0,0) => (%d,%d,%d)\n", segmented_rgb[0], segmented_rgb[1], segmented_rgb[2]);
 
 	int result_seg = stbi_write_jpg("segmentado.jpeg", x_dim, y_dim, n_channels, segmented_rgb, 100);
 
-	
-	/*for(int i = 0; i < sizeC; ++i){
+#ifdef DEBUG	
+	for(int i = 0; i < sizeC; ++i){
 		paintPixel(image_data, x_dim, y_dim, n_channels, (centers+i)->x, (centers+i)->y, 255, 0, 0);
 	}
-	int result = stbi_write_jpg("gato_mod.jpeg", x_dim, y_dim, n_channels, image_data, 100);
-	*/
+	int result = stbi_write_jpg("segmented_mod.jpeg", x_dim, y_dim, n_channels, image_data, 100);
+#endif
+	
 	
 
 	free(centers);
@@ -404,28 +263,6 @@ int main(int argc, char** argv){
 	segmented = NULL;
 	free(segmented_rgb);
 	segmented_rgb = NULL;
-
-
-	/*
-	for(int i = 0; i < x_dim; ++i){
-		for(int j = 0; j < y_dim*n_channels; j+=n_channels){
-			unsigned char* r = (image_data+i*y_dim*n_channels + j);
-			unsigned char* g = (image_data+i*y_dim*n_channels + j+1);
-			unsigned char* b = (image_data+i*y_dim*n_channels + j+2);
-			*g = 80;
-			*b =20;
-		}
-	}
-	*/
-	//for(int i = 0; i < x_dim; ++i){
-	//	for(int j = 0; j < y_dim; ++j){
-	//		if(image_data[i*y_dim + j] > 150)
-	//			image_data[i*y_dim + j] = (int)fmin((image_data[i*y_dim + j] + 90), 255);
-	//		if(image_data[i*y_dim + j] < 128)
-	//			image_data[i*y_dim + j] = (int)fmax((image_data[i*y_dim + j] - 90), 0);
-	//	}
-	//}
-    //int result = stbi_write_jpg("gato_mod.jpeg", x_dim, y_dim, n_channels, image_data, 100);
 
 	stbi_image_free(image_data);
 	free(cielab);
