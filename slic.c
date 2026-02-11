@@ -246,7 +246,7 @@ int main(int argc, char** argv){
 
 	unsigned char* segmented_rgb = cielab_to_rgb(segmented, x_dim, y_dim, n_channels);
 
-	int result_seg = stbi_write_jpg("segmentado.jpeg", x_dim, y_dim, n_channels, segmented_rgb, 100);
+	int result_seg = stbi_write_jpg("segmented.jpeg", x_dim, y_dim, n_channels, segmented_rgb, 100);
 
 #ifdef DEBUG	
 	for(int i = 0; i < sizeC; ++i){
