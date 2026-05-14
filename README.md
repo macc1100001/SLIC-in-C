@@ -1,4 +1,8 @@
 # SLIC in C
+Compile
+```
+gcc *.c -lm -o slic
+```
 Usage
 ```
 ./slic image.jpeg
