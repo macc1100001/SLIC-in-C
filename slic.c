@@ -1,23 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <string.h>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-#include "stb_image_write.h"
-
-
-#include"color_space_conversion.h"
-
-struct cluster{
-	float l;
-	float a;
-	float b;
-	int x;
-	int y;
-};
+#include "slic.h"
 
 #ifdef DEBUG
 void paintPixel(unsigned char* rgb_img, int w, int h, int c, int x, int y, int r, int g, int b){
@@ -40,7 +21,7 @@ float gradient(float* img_cielab, int w, int h, int c, int x, int y){
 		float term_y = (*(img_cielab+x*w*c + (y+1)*c+i) - *(img_cielab+x*w*c + (y-1)*c+i))/2;
 		grad_norm += term_x*term_x + term_y*term_y;
 	}
-	return grad_norm; 
+	return sqrt(grad_norm); 
 }
 
 float Distance_D(struct cluster* center_k, float* img_cielab, int xi, int yi, int S, float m){
@@ -122,12 +103,13 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 	int pixel_count[k];
 	int new_x[k];
 	int new_y[k];
+	int iter = 0;
 	do{
 		for(int i = 0; i < k; ++i){
 			// Assign the best matching pixels from a 2Sx2S square neighborhood around
 			// the cluster center according to the distance measure
-			for(int j = -S; j <= S; ++j){
-				for(int l = -S; l <= S; ++l){
+			for(int j = -2*S; j <= 2*S; ++j){
+				for(int l = -2*S; l <= 2*S; ++l){
 					// compute D between Ck and i
 					int x_pix = (*cluster_centers+i)->x+j;
 					int y_pix = (*cluster_centers+i)->y+l;
@@ -170,7 +152,7 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 		error /= k;
 		previous_centers = memcpy(previous_centers, *cluster_centers, k*sizeof(struct cluster));
 		
-		printf("error: %f\n", error);
+		printf("Iteration: %d, error: %f\n", ++iter, error);
 
 	}while(error > umbral);
 	// TODO: Enforce connectivity
@@ -199,75 +181,3 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 	return out_img;
 }
 
-void usage(char* program, int k){
-	fprintf(stderr, "Usage: %s [-k number of Superpixels] imagepath\nDefault k = %d\n", program, k);
-}
-
-int main(int argc, char** argv){
-	
-	int opt, k = 500;
-	char* image_path;
-	while((opt = getopt(argc, argv, "k:")) != -1){
-		switch(opt){
-			case 'k':
-				k = atoi(optarg);
-				break;
-			default:
-				usage(argv[0], k);
-				exit(EXIT_FAILURE);
-		}
-	}
-	if(optind >= argc){
-		fprintf(stderr, "Expected arguments after options\n");
-		usage(argv[0], k);
-		exit(EXIT_FAILURE);
-	}
-	image_path = argv[optind];
-	
-	int x_dim, y_dim, n_channels;
-	unsigned char* image_data = stbi_load(image_path, &x_dim, &y_dim, &n_channels, 3);
-
-	if(image_data == NULL){
-		fprintf(stderr, "Error loading the image provided\n");
-		exit(EXIT_FAILURE);
-	}
-
-	float* cielab = rgb_to_cielab(image_data, x_dim, y_dim, n_channels);
-	printf("Image dimensions: %d x %d %d\n", x_dim, y_dim, n_channels);
-
-	int sizeC;
-	struct cluster* centers;
-
-	float* segmented = SLIC(cielab, x_dim, y_dim, n_channels, k, 10.0, &centers, &sizeC);
-	if(segmented == NULL){
-		fprintf(stderr, "Error allocating memory\n");
-		exit(EXIT_FAILURE);
-	}
-
-	unsigned char* segmented_rgb = cielab_to_rgb(segmented, x_dim, y_dim, n_channels);
-
-	int result_seg = stbi_write_jpg("segmented.jpeg", x_dim, y_dim, n_channels, segmented_rgb, 100);
-
-#ifdef DEBUG	
-	for(int i = 0; i < sizeC; ++i){
-		paintPixel(image_data, x_dim, y_dim, n_channels, (centers+i)->x, (centers+i)->y, 255, 0, 0);
-	}
-	int result = stbi_write_jpg("segmented_mod.jpeg", x_dim, y_dim, n_channels, image_data, 100);
-#endif
-	
-	
-
-	free(centers);
-	centers = NULL;
-	free(segmented);
-	segmented = NULL;
-	free(segmented_rgb);
-	segmented_rgb = NULL;
-
-	stbi_image_free(image_data);
-	free(cielab);
-	cielab = NULL;
-	image_data = NULL;
-
-	exit(EXIT_SUCCESS);
-}
