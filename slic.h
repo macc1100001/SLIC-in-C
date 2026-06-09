@@ -24,6 +24,6 @@ float gradient(float* img_cielab, int w, int h, int c, int x, int y);
 
 float Distance_D(struct cluster* center_k, float* img_cielab, int xi, int yi, int S, float m);
 
-float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct cluster** cluster_centers, int* sizeC);
+float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct cluster* cluster_centers, int* sizeC);
 #endif
 

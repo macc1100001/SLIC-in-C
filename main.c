@@ -48,7 +48,7 @@ int main(int argc, char** argv){
 	int sizeC;
 	struct cluster* centers;
 
-	float* segmented = SLIC(cielab, x_dim, y_dim, n_channels, k, 10.0, &centers, &sizeC);
+	float* segmented = SLIC(cielab, x_dim, y_dim, n_channels, k, 10.0, centers, &sizeC);
 	if(segmented == NULL){
 		fprintf(stderr, "Error allocating memory\n");
 		exit(EXIT_FAILURE);
