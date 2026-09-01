@@ -17,11 +17,11 @@ void paintPixel(unsigned char* rgb_img, int w, int h, int c, int x, int y, int r
 float gradient(float* img_cielab, int w, int h, int c, int x, int y){
 	float grad_norm = 0.0;
 	for(int i = 0; i < 3; ++i){
-		float term_x = (*(img_cielab+(x+1)*w*c + y*c+i) - *(img_cielab+(x-1)*w*c + y*c+i))/2;
-		float term_y = (*(img_cielab+x*w*c + (y+1)*c+i) - *(img_cielab+x*w*c + (y-1)*c+i))/2;
+		float term_y = (*(img_cielab+(y+1)*w*c + x*c+i) - *(img_cielab+(y-1)*w*c + x*c+i));
+		float term_x = (*(img_cielab+y*w*c + (x+1)*c+i) - *(img_cielab+y*w*c + (x-1)*c+i));
 		grad_norm += term_x*term_x + term_y*term_y;
 	}
-	return sqrt(grad_norm); 
+	return grad_norm; 
 }
 
 float Distance_D(struct cluster* center_k, float* img_cielab, int xi, int yi, int S, float m){
@@ -33,17 +33,18 @@ float Distance_D(struct cluster* center_k, float* img_cielab, int xi, int yi, in
 	float dy = (center_k)->y - yi;
 	dlab = sqrt((diff_li*diff_li) + (diff_ai*diff_ai) + (diff_bi*diff_bi));
 	dxy = sqrt((dx*dx) + (dy*dy));
-	Ds = dlab + (m/S)*dxy;
+	Ds = dlab + (m*dxy)/S;
 	return Ds;
 }
 
-float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct cluster* cluster_centers, int* sizeC){
+float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct cluster** centers, int* sizeC, int max_iters){
     if(K > (w*h))
         return NULL;
-	int S = floor(sqrt(w*h/K));
+	int S = sqrt(w*h/K);
 	int sizeOfS = w*h/K;
 	int neighborhood = 1;
-	cluster_centers = malloc(2*K * sizeof(struct cluster));
+	*centers = malloc(1.5*K * sizeof(struct cluster));
+    struct cluster* cluster_centers = *centers;
 	int* labels = malloc(w*h*sizeof(int));
 	float* distances = malloc(w*h*sizeof(float));
 	if(cluster_centers == NULL || labels == NULL || distances == NULL){
@@ -63,13 +64,13 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 			(cluster_centers+k)->l = *(cielab_img+i*w*c + j); // c*S
 			(cluster_centers+k)->a = *(cielab_img+i*w*c + j+1); // c*S
 			(cluster_centers+k)->b = *(cielab_img+i*w*c + j+2); //c*S
-			(cluster_centers+k)->x = i;
-			(cluster_centers+k)->y = j/c;
+			(cluster_centers+k)->y = i;
+			(cluster_centers+k)->x = j/c;
 			++k;
 		}
 	}
 	printf("Superpixel size: %d\n", sizeOfS);
-	printf("S = %d\n", S);
+	printf("S (grid separation) = %d\n", S);
 	printf("Requested K = %d, real k = %d\n", K, k);
 	struct cluster* tmp = reallocarray(cluster_centers, k, sizeof(struct cluster));
     if(!tmp)cluster_centers = tmp;
@@ -81,28 +82,28 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 		int new_x, new_y;
 
 		for(int dh = -neighborhood; dh <= neighborhood; ++dh){
+            new_y = (cluster_centers+i)->y + dh;
 			for(int dw = -neighborhood; dw <= neighborhood; ++dw){
 				new_x = (cluster_centers+i)->x + dw;
-				new_y = (cluster_centers+i)->y + dh;
 
 				new_grad = gradient(cielab_img, w, h, c, new_x, new_y);
 				if(new_grad < grad){
-					(cluster_centers+i)->l = *(cielab_img+new_x*w*c + new_y*c);
-					(cluster_centers+i)->a	= *(cielab_img+new_x*w*c + new_y*c+1);
-					(cluster_centers+i)->b = *(cielab_img+new_x*w*c + new_y*c+2);
+					(cluster_centers+i)->l = *(cielab_img+new_y*w*c + new_x*c);
+					(cluster_centers+i)->a = *(cielab_img+new_y*w*c + new_x*c+1);
+					(cluster_centers+i)->b = *(cielab_img+new_y*w*c + new_x*c+2);
 					(cluster_centers+i)->x = new_x;
 					(cluster_centers+i)->y = new_y;
 					grad = new_grad;
-				}
+                }
 			}
 		}
 	}
 
 	// Compute distances in a 2S x 2S grid around cluster centers
 	float error = 0;
-	float umbral = 1e-4;
-	struct cluster* previous_centers = malloc(k * sizeof(struct cluster));
-	previous_centers = memcpy(previous_centers, cluster_centers, k*sizeof(struct cluster));
+	float threshold = 1e-4;
+	//struct cluster* previous_centers = malloc(k * sizeof(struct cluster));
+	//previous_centers = memcpy(previous_centers, cluster_centers, k*sizeof(struct cluster));
 	int pixel_count[k];
 	int new_x[k];
 	int new_y[k];
@@ -111,17 +112,17 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 		for(int i = 0; i < k; ++i){
 			// Assign the best matching pixels from a 2Sx2S square neighborhood around
 			// the cluster center according to the distance measure
-			for(int j = -2*S; j <= 2*S; ++j){
-				for(int l = -2*S; l <= 2*S; ++l){
+			for(int j = -S; j <= S; ++j){
+				for(int l = -S; l <= S; ++l){
 					// compute D between Ck and i
-					int x_pix = (cluster_centers+i)->x+j;
-					int y_pix = (cluster_centers+i)->y+l;
-					if(x_pix < 0 || x_pix >= h)continue;
-					if(y_pix < 0 || y_pix >= w)continue;
-					float D = Distance_D(cluster_centers+i, cielab_img+(((x_pix)*w*c) + y_pix*c), x_pix, y_pix, S, m);
-					if(D < *(distances+(x_pix*w + y_pix))){
-						*(distances+(x_pix*w) + y_pix) = D;
-						*(labels+(x_pix*w) + y_pix) = i;
+					int x_pix = (cluster_centers+i)->x+l;
+					int y_pix = (cluster_centers+i)->y+j;
+					if(x_pix < 0 || x_pix >= w)continue;
+					if(y_pix < 0 || y_pix >= h)continue;
+					float D = Distance_D(cluster_centers+i, cielab_img+(((y_pix)*w*c) + x_pix*c), x_pix, y_pix, S, m);
+					if(D < *(distances+(y_pix*w + x_pix))){
+						*(distances+(y_pix*w) + x_pix) = D;
+						*(labels+(y_pix*w) + x_pix) = i;
 					}
 				}
 			}
@@ -135,29 +136,40 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 		for(int i = 0; i < h; ++i){
 			for(int j = 0; j < w; ++j){
 				int label_idx = *(labels+i*w + j);
-				if(label_idx == -1) continue;
-				new_x[label_idx] += i;
-				new_y[label_idx] += j;
+				if(label_idx == -1){
+                    printf("Ophaned pixel at x= %d, y = %d\n", j, i);
+                    continue;
+                } 
+				new_x[label_idx] += j;
+				new_y[label_idx] += i;
 				pixel_count[label_idx] += 1;
 			}
 		}
 		for(int i = 0; i < k; ++i){
-			if(pixel_count[i] == 0) continue;
+			if(pixel_count[i] == 0) 
+                continue;
+            
 			new_x[i] /= pixel_count[i];
 			new_y[i] /= pixel_count[i];
-			(cluster_centers+i)->l = *(cielab_img+new_x[i]*w*c + new_y[i]*c);
-			(cluster_centers+i)->a = *(cielab_img+new_x[i]*w*c + new_y[i]*c+1);
-			(cluster_centers+i)->b = *(cielab_img+new_x[i]*w*c + new_y[i]*c+2);
+			(cluster_centers+i)->l = *(cielab_img+new_y[i]*w*c + new_x[i]*c);
+			(cluster_centers+i)->a = *(cielab_img+new_y[i]*w*c + new_x[i]*c+1);
+			(cluster_centers+i)->b = *(cielab_img+new_y[i]*w*c + new_x[i]*c+2);
+            
+            int errx = (cluster_centers+i)->x - new_x[i];
+            int erry = (cluster_centers+i)->y - new_y[i];
+            error += sqrt(errx*errx + erry*erry);
+            
+            //error += abs((cluster_centers+i)->x - new_x[i]) + abs((cluster_centers+i)->y - new_y[i]);
 			(cluster_centers+i)->x = new_x[i];
 			(cluster_centers+i)->y = new_y[i];
-			error += abs((cluster_centers+i)->x - (previous_centers+i)->x) + abs((cluster_centers+i)->y - (previous_centers+i)->y);
+			//error += abs((cluster_centers+i)->x - (previous_centers+i)->x) + abs((cluster_centers+i)->y - (previous_centers+i)->y);
 		}
 		error /= k;
-		previous_centers = memcpy(previous_centers, cluster_centers, k*sizeof(struct cluster));
+		//previous_centers = memcpy(previous_centers, cluster_centers, k*sizeof(struct cluster));
 		
 		printf("Iteration: %d, error: %f\n", ++iter, error);
 
-	}while(error > umbral);
+	}while(error > threshold && iter < max_iters);
 	// TODO: Enforce connectivity
 	
 	// Generate final image
@@ -172,15 +184,15 @@ float* SLIC(float* cielab_img, int w, int h, int c, int K, float m, struct clust
 			}
 		}
 	}
-	
+
 	
 	*sizeC = k;
 	free(labels);
 	labels = NULL;
 	free(distances);
 	distances = NULL;
-	free(previous_centers);
-	previous_centers = NULL;
+	//free(previous_centers);
+	//previous_centers = NULL;
 	return out_img;
 }
 
